@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "emudhra-check"
+version = "0.1.0"
+description = "Check whether your dependencies, machine or servers are exposed to the Oct 2026 eMudhra CA key compromise"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+emudhra-check = "emudhra_check.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
