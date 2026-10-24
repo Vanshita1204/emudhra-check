@@ -12,13 +12,13 @@ Pure standard library. Python 3.10+ (3.11+ for `poetry.lock` / `uv.lock`).
 
 ## Install and run in your project
 
-Replace `<repo-url>` with the git URL once pushed. Nothing else is installed (no dependencies).
+Nothing else is installed (no dependencies).
 
 ```
 cd your-project
-uvx --from git+<repo-url> emudhra-check          # no install; or: pipx run --spec git+<repo-url> emudhra-check
+uvx --from git+https://github.com/Vanshita1204/emudhra-check.git emudhra-check          # no install; or: pipx run --spec git+https://github.com/Vanshita1204/emudhra-check.git emudhra-check
 # or install it once:
-pipx install git+<repo-url>   &&   emudhra-check
+pipx install git+https://github.com/Vanshita1204/emudhra-check.git   &&   emudhra-check
 ```
 
 With no arguments it checks, for the current folder: `requirements*.txt` and lockfiles, the active venv
