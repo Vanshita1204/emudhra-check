@@ -11,6 +11,7 @@ from pathlib import Path
 from .data import (PATCHED_GO, PATCHED_JAVA, PATCHED_JAVA8_UPDATE, PATCHED_NODE, PATCHED_PYTHON,
                    PYTHON_PACKAGES, ROOT_BY_CERT, SOFT_FLOORS)
 from .der import cert_fingerprint, pem_to_ders
+from .weakkey import tiny_private_key
 from .findings import FAIL, INFO, OK, UNKNOWN, WARN, Finding, cmp_versions, parse_version
 
 # Runs inside the interpreter being checked. Prints one JSON line. Must not import
@@ -45,8 +46,17 @@ print(json.dumps(out))
 
 
 def scan_bundle_text(text):
-    """Return {cert_sha256: (name, role)} for distrusted/noted roots found in PEM text."""
-    return {fp: ROOT_BY_CERT[fp] for fp in (cert_fingerprint(d) for d in pem_to_ders(text)) if fp in ROOT_BY_CERT}
+    """Return {cert_sha256: (name, role)} for distrusted/noted roots and tiny-key CAs found in PEM text."""
+    hits = {}
+    for der in pem_to_ders(text):
+        fp = cert_fingerprint(der)
+        if fp in ROOT_BY_CERT:
+            hits[fp] = ROOT_BY_CERT[fp]
+            continue
+        k = tiny_private_key(der)
+        if k:
+            hits[fp] = (f"certificate {fp[:16]}... (key = {k}*G)", "weak")
+    return hits
 
 
 def scan_bundle(path):
@@ -65,6 +75,12 @@ def judge_bundle(label, where, hits, area="env"):
     out = []
     bad = sorted({n for n, role in hits.values() if role == "distrust"})
     note = sorted({n for n, role in hits.values() if role == "note"})
+    weak = sorted({n for n, role in hits.values() if role == "weak"})
+    if weak:
+        out.append(Finding(FAIL, area, label,
+                           f"{where} contains a CA whose private key is a tiny integer (anyone can recover it): "
+                           f"{'; '.join(weak)}",
+                           "remove this certificate from the bundle; it can sign anything"))
     if bad:
         out.append(Finding(FAIL, area, label, f"{where} still trusts: {', '.join(bad)}",
                            "update this CA bundle (or the package that ships it)"))
@@ -75,7 +91,7 @@ def judge_bundle(label, where, hits, area="env"):
             "copies of the weak keys (Chrome and Mozilla already dropped it; Windows and Apple still trust it)",
             "fine if your client checks revocation; otherwise see the workarounds at "
             "https://emudhra.we-have-a-problem.com/#workarounds"))
-    if not bad and not note:
+    if not bad and not note and not weak:
         out.append(Finding(OK, area, label, f"{where}: no affected roots present"))
     return out
 

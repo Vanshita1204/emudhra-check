@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from emudhra_check import cli, deps, domain, env, image
+from emudhra_check import cli, deps, domain, env, image, weakkey
 from emudhra_check.data import CERT_TO_NAME, INTERMEDIATES, ROOTS, SPKI_TO_NAME
 from emudhra_check.der import cert_fingerprint, pem_to_ders, spki_fingerprint
 from emudhra_check.findings import FAIL, INFO, OK, UNKNOWN, WARN, cmp_versions, parse_version
@@ -313,6 +313,59 @@ def _oci_archive(path, layers, env_vars=()):
     index = {"manifests": [{"digest": manifest, "annotations": {"org.opencontainers.image.ref.name": "oci:1"},
                             "platform": {"os": "linux", "architecture": "arm64"}}]}
     _write_archive(path, {"index.json": json.dumps(index).encode(), **blobs})
+
+
+
+class WeakKeys(unittest.TestCase):
+    def test_published_compromised_intermediate_has_a_tiny_key(self):
+        k = weakkey.tiny_private_key(pem_to_ders(DV_G3B_PEM)[0])
+        self.assertIsNotNone(k)
+        self.assertLess(k, 256)  # the disclosure says every compromised key is below 256
+
+    def test_normal_ec_root_is_not_flagged(self):
+        self.assertIsNone(weakkey.tiny_private_key(pem_to_ders(ECC_ROOT_PEM)[0]))
+
+    def test_non_ec_and_garbage_are_ignored(self):
+        self.assertIsNone(weakkey.tiny_private_key(b"\x30\x03\x02\x01\x00"))
+        self.assertIsNone(weakkey.parse_ec_spki(b"junk"))
+
+    def test_curve_constants_are_consistent(self):
+        def add(P, Q, p):
+            if P is None or Q is None:
+                return P or Q
+            if P[0] == Q[0]:
+                if (P[1] + Q[1]) % p == 0:
+                    return None
+                lam = (3 * P[0] * P[0] - 3) * pow(2 * P[1], -1, p) % p
+            else:
+                lam = (Q[1] - P[1]) * pow(Q[0] - P[0], -1, p) % p
+            x = (lam * lam - P[0] - Q[0]) % p
+            return x, (lam * (P[0] - x) - P[1]) % p
+        for c in weakkey.CURVES.values():
+            self.assertEqual((c.gy ** 2 - (c.gx ** 3 - 3 * c.gx + c.b)) % c.p, 0, c.name)
+            acc, pt = None, (c.gx, c.gy)
+            k = c.n
+            while k:
+                if k & 1:
+                    acc = add(acc, pt, c.p)
+                pt = add(pt, pt, c.p)
+                k >>= 1
+            self.assertIsNone(acc, c.name)  # n*G is the point at infinity
+
+    def test_unlisted_tiny_key_in_a_served_chain_fails(self):
+        der = pem_to_ders(DV_G3B_PEM)[0]
+        with mock.patch.object(domain, "SPKI_TO_NAME", {}), mock.patch.object(domain, "CERT_TO_NAME", {}), \
+                mock.patch.object(domain, "_COMPROMISED_NAMES", []), mock.patch.object(domain, "_DISTRUST_NAMES", {}):
+            f = domain.analyze_chain([der], "x")
+        self.assertEqual(f[0].level, FAIL)
+        self.assertIn("not on the published list", f[0].message)
+
+    def test_tiny_key_ca_in_a_bundle_fails(self):
+        f = env.judge_bundle("b", "/x.pem", env.scan_bundle_text(DV_G3B_PEM))
+        self.assertEqual(f[0].level, FAIL)
+        self.assertIn("tiny integer", f[0].message)
+        clean = env.judge_bundle("b", "/x.pem", env.scan_bundle_text("# empty"))
+        self.assertEqual(clean[0].level, OK)
 
 
 class Images(unittest.TestCase):

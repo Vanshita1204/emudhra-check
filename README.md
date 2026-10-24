@@ -45,11 +45,18 @@ Exit codes: `0` nothing confirmed, `1` something affected, `2` nothing could be 
 ## What each check does
 
 | Command | Checks |
-|---|---|
+| --- | --- |
 | `deps` | certifi, pip, uv, sigstore, pixi versions against the fixed releases. Unpinned packages are reported as UNKNOWN, never as safe. |
 | `env` | Installed pip/certifi versions, then the actual CA bundle files (pip's vendored bundle, certifi, system store, `PIP_CERT`, `REQUESTS_CA_BUNDLE`, `SSL_CERT_FILE`...) for the distrusted roots by SHA-256, plus Python, Node, Go and Java versions. |
 | `image` | Replays the image's layers in memory (nothing is run or written to disk) and inspects the final filesystem: CA bundles (`ca-certificates.crt`, `cacert.pem` incl. pip's and certifi's, individual files under `/usr/share/ca-certificates`) by SHA-256, pip/certifi/uv/sigstore/pixi versions from `site-packages`, and Python/Node/Go/Java versions from the image config, Go's `VERSION` and Java's `release` file. |
 | `domain` | Fetches the chain a server sends (honours `HTTPS_PROXY`) and matches every certificate's SPKI hash, certificate hash and issuer name against the eight compromised keys and the distrusted emSign roots. |
+
+## Unlisted weak keys
+
+Besides matching the eight published keys, `domain`, `env` and `image` test every EC certificate they see
+(P-256, P-384, P-521) for the same flaw directly: if its public key equals `k*G` for any `k <= 4096`, the private
+key is recoverable and it is reported as FAIL even if it is not on the published list. RSA keys and larger
+`k` are not tested. This does not search for other kinds of weak keys.
 
 ## Limits (read these)
 

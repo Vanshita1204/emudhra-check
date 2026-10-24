@@ -11,6 +11,7 @@ from urllib.parse import unquote, urlparse
 from .data import CERT_TO_NAME, INTERMEDIATES, ROOT_BY_CERT, ROOT_BY_SPKI, ROOTS, SPKI_TO_NAME
 from .der import cert_fingerprint, parse_cert, pem_to_ders, sha256_hex
 from .findings import FAIL, INFO, OK, UNKNOWN, Finding
+from .weakkey import tiny_private_key
 
 _COMPROMISED_NAMES = [n.encode() for n, *_ in INTERMEDIATES]
 _DISTRUST_NAMES = {n.encode(): n for n, role, *_ in ROOTS if role == "distrust"}
@@ -111,6 +112,14 @@ def analyze_chain(ders, subject="chain"):
         if root_issuer:
             findings.append(Finding(
                 FAIL, "domain", subject, f"{label} was issued directly by '{root_issuer}', a distrusted root", FIX_FAIL))
+            continue
+        tiny = tiny_private_key(der)
+        if tiny:
+            findings.append(Finding(
+                FAIL, "domain", subject,
+                f"{label}'s public key is {tiny}*G, so its private key is the tiny integer {tiny} (or its negation) "
+                "and anyone can recover it; this key is not on the published list",
+                FIX_FAIL))
     if not any(f.level == FAIL for f in findings):
         findings.append(Finding(
             OK, "domain", subject,
